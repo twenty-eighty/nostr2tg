@@ -1,0 +1,10 @@
+/_build
+/deps
+/cover
+*.ez
+.git
+.gitignore
+.DS_Store
+/tmp
+/_cache
+*.swp

@@ -1,0 +1,36 @@
+services:
+  - type: worker
+    name: nostr2tg
+    env: docker
+    plan: starter
+    autoDeploy: true
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: MIX_ENV
+        value: prod
+      - key: N2TG_TG_BOT_TOKEN
+        sync: false
+      - key: N2TG_TG_CHAT_ID
+        sync: false
+      - key: N2TG_TG_PREFIX
+        value: "New Nostr article:"
+      - key: N2TG_LINK_NADDR_BASE
+        value: https://njump.me/
+      - key: N2TG_LINK_NIP05_BASE
+        value: https://example.com/nostr
+      - key: N2TG_NOSTR_RELAYS
+        value: wss://relay.damus.io,wss://nos.lol
+      - key: N2TG_MODE
+        value: authors
+      - key: N2TG_AUTHORS
+        value: ""
+      - key: N2TG_FOLLOWLIST_PUBKEY
+        value: ""
+      - key: N2TG_DRY_RUN
+        value: "0"
+      - key: N2TG_TG_POLL_TIMEOUT_MS
+        value: "10000"
+      - key: N2TG_SYNC_INTERVAL_MS
+        value: "3600000"
+      - key: N2TG_SYNC_ALL_ON_EMPTY
+        value: "0"
