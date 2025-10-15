@@ -35,6 +35,10 @@ defmodule Nostr2tg.TelegramClient do
   def unpin_chat_message(chat_id, message_id),
     do: GenServer.call(__MODULE__, {:unpin_chat_message, chat_id, message_id}, 30_000)
 
+  @spec unpin_all_chat_messages(integer() | String.t()) :: api_result()
+  def unpin_all_chat_messages(chat_id),
+    do: GenServer.call(__MODULE__, {:unpin_all_chat_messages, chat_id}, 30_000)
+
   @impl true
   def handle_call({:send_message, text}, _from, state) do
     tg = Application.fetch_env!(:nostr2tg, :tg)
@@ -52,16 +56,13 @@ defmodule Nostr2tg.TelegramClient do
     body = Jason.encode!(%{chat_id: chat_id, text: text, parse_mode: "HTML", disable_web_page_preview: false})
     headers = [{"content-type", "application/json"}]
 
-    request = Finch.build(:post, url, headers, body)
-
-    case Finch.request(request, Nostr2tg.Finch) do
-      {:ok, %Finch.Response{status: status, body: resp}} when status in 200..299 ->
-        {:reply, {:ok, Jason.decode!(resp)}, state}
-
-      {:ok, %Finch.Response{status: status, body: resp}} ->
+    case Req.post(url: url, headers: headers, body: body) do
+      {:ok, %{status: status, body: resp}} when status in 200..299 ->
+        parsed = if is_binary(resp), do: Jason.decode!(resp), else: resp
+        {:reply, {:ok, parsed}, state}
+      {:ok, %{status: status, body: resp}} ->
         Logger.error("Telegram sendMessage failed: #{status} #{inspect(resp)}")
         {:reply, {:error, {:status, status, resp}}, state}
-
       {:error, reason} ->
         Logger.error("Telegram sendMessage error: #{inspect(reason)}")
         {:reply, {:error, reason}, state}
@@ -79,17 +80,19 @@ defmodule Nostr2tg.TelegramClient do
     params = if offset, do: Map.put(params, :offset, offset), else: params
     full_url = url <> "?" <> URI.encode_query(params)
 
-    request = Finch.build(:get, full_url)
-
-    case Finch.request(request, Nostr2tg.Finch) do
-      {:ok, %Finch.Response{status: status, body: resp}} when status in 200..299 ->
-        with {:ok, %{"ok" => true, "result" => result}} <- Jason.decode(resp) do
-          {:reply, {:ok, result}, state}
-        else
-          _ -> {:reply, {:error, :bad_response}, state}
+    case Req.get(url: full_url) do
+      {:ok, %{status: status, body: resp}} when status in 200..299 ->
+        case resp do
+          %{"ok" => true, "result" => result} -> {:reply, {:ok, result}, state}
+          _ ->
+            with {:ok, %{"ok" => true, "result" => result}} <- (is_binary(resp) && Jason.decode(resp) || {:error, :not_json}) do
+              {:reply, {:ok, result}, state}
+            else
+              _ -> {:reply, {:error, :bad_response}, state}
+            end
         end
 
-      {:ok, %Finch.Response{status: status, body: resp}} ->
+      {:ok, %{status: status, body: resp}} ->
         {:reply, {:error, {:status, status, resp}}, state}
 
       {:error, reason} ->
@@ -104,15 +107,17 @@ defmodule Nostr2tg.TelegramClient do
     token = Map.fetch!(tg, :bot_token)
     chat_id = Map.fetch!(tg, :chat_id)
     url = base <> "/bot" <> token <> "/getChat?" <> URI.encode_query(%{chat_id: chat_id})
-    request = Finch.build(:get, url)
-
-    case Finch.request(request, Nostr2tg.Finch) do
-      {:ok, %Finch.Response{status: 200, body: body}} ->
-        case Jason.decode(body) do
-          {:ok, %{"ok" => true} = resp} -> {:reply, {:ok, resp}, state}
-          _ -> {:reply, {:error, :bad_response}, state}
+    case Req.get(url: url) do
+      {:ok, %{status: 200, body: body}} ->
+        case body do
+          %{"ok" => true} = resp -> {:reply, {:ok, resp}, state}
+          _ ->
+            case Jason.decode(body) do
+              {:ok, %{"ok" => true} = resp} -> {:reply, {:ok, resp}, state}
+              _ -> {:reply, {:error, :bad_response}, state}
+            end
         end
-      {:ok, %Finch.Response{status: s, body: b}} -> {:reply, {:error, {:status, s, b}}, state}
+      {:ok, %{status: s, body: b}} -> {:reply, {:error, {:status, s, b}}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
@@ -125,15 +130,17 @@ defmodule Nostr2tg.TelegramClient do
     url = base <> "/bot" <> token <> "/editMessageText"
     body = Jason.encode!(%{chat_id: chat_id, message_id: message_id, text: text, parse_mode: "HTML"})
     headers = [{"content-type", "application/json"}]
-    request = Finch.build(:post, url, headers, body)
-
-    case Finch.request(request, Nostr2tg.Finch) do
-      {:ok, %Finch.Response{status: 200, body: body}} ->
-        case Jason.decode(body) do
-          {:ok, %{"ok" => true} = resp} -> {:reply, {:ok, resp}, state}
-          _ -> {:reply, {:error, :bad_response}, state}
+    case Req.post(url: url, headers: headers, body: body) do
+      {:ok, %{status: 200, body: body}} ->
+        case body do
+          %{"ok" => true} = resp -> {:reply, {:ok, resp}, state}
+          _ ->
+            case Jason.decode(body) do
+              {:ok, %{"ok" => true} = resp} -> {:reply, {:ok, resp}, state}
+              _ -> {:reply, {:error, :bad_response}, state}
+            end
         end
-      {:ok, %Finch.Response{status: s, body: b}} -> {:reply, {:error, {:status, s, b}}, state}
+      {:ok, %{status: s, body: b}} -> {:reply, {:error, {:status, s, b}}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
@@ -146,15 +153,17 @@ defmodule Nostr2tg.TelegramClient do
     url = base <> "/bot" <> token <> "/pinChatMessage"
     body = Jason.encode!(%{chat_id: chat_id, message_id: message_id})
     headers = [{"content-type", "application/json"}]
-    request = Finch.build(:post, url, headers, body)
-
-    case Finch.request(request, Nostr2tg.Finch) do
-      {:ok, %Finch.Response{status: 200, body: body}} ->
-        case Jason.decode(body) do
-          {:ok, %{"ok" => true} = resp} -> {:reply, {:ok, resp}, state}
-          _ -> {:reply, {:error, :bad_response}, state}
+    case Req.post(url: url, headers: headers, body: body) do
+      {:ok, %{status: 200, body: body}} ->
+        case body do
+          %{"ok" => true} = resp -> {:reply, {:ok, resp}, state}
+          _ ->
+            case Jason.decode(body) do
+              {:ok, %{"ok" => true} = resp} -> {:reply, {:ok, resp}, state}
+              _ -> {:reply, {:error, :bad_response}, state}
+            end
         end
-      {:ok, %Finch.Response{status: s, body: b}} -> {:reply, {:error, {:status, s, b}}, state}
+      {:ok, %{status: s, body: b}} -> {:reply, {:error, {:status, s, b}}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
@@ -167,15 +176,41 @@ defmodule Nostr2tg.TelegramClient do
     url = base <> "/bot" <> token <> "/unpinChatMessage"
     body = Jason.encode!(%{chat_id: chat_id, message_id: message_id})
     headers = [{"content-type", "application/json"}]
-    request = Finch.build(:post, url, headers, body)
-
-    case Finch.request(request, Nostr2tg.Finch) do
-      {:ok, %Finch.Response{status: 200, body: body}} ->
-        case Jason.decode(body) do
-          {:ok, %{"ok" => true} = resp} -> {:reply, {:ok, resp}, state}
-          _ -> {:reply, {:error, :bad_response}, state}
+    case Req.post(url: url, headers: headers, body: body) do
+      {:ok, %{status: 200, body: body}} ->
+        case body do
+          %{"ok" => true} = resp -> {:reply, {:ok, resp}, state}
+          _ ->
+            case Jason.decode(body) do
+              {:ok, %{"ok" => true} = resp} -> {:reply, {:ok, resp}, state}
+              _ -> {:reply, {:error, :bad_response}, state}
+            end
         end
-      {:ok, %Finch.Response{status: s, body: b}} -> {:reply, {:error, {:status, s, b}}, state}
+      {:ok, %{status: s, body: b}} -> {:reply, {:error, {:status, s, b}}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:unpin_all_chat_messages, chat_id}, _from, state) do
+    tg = Application.fetch_env!(:nostr2tg, :tg)
+    base = Map.fetch!(tg, :api_base)
+    token = Map.fetch!(tg, :bot_token)
+    url = base <> "/bot" <> token <> "/unpinAllChatMessages"
+    body = Jason.encode!(%{chat_id: chat_id})
+    headers = [{"content-type", "application/json"}]
+
+    case Req.post(url: url, headers: headers, body: body) do
+      {:ok, %{status: 200, body: body}} ->
+        case body do
+          %{"ok" => true} = resp -> {:reply, {:ok, resp}, state}
+          _ ->
+            case Jason.decode(body) do
+              {:ok, %{"ok" => true} = resp} -> {:reply, {:ok, resp}, state}
+              _ -> {:reply, {:error, :bad_response}, state}
+            end
+        end
+      {:ok, %{status: s, body: b}} -> {:reply, {:error, {:status, s, b}}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
