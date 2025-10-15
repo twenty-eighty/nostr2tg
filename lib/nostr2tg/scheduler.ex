@@ -22,8 +22,20 @@ defmodule Nostr2tg.Scheduler do
     Logger.info("Starting sync tick")
     state =
       if Map.get(state, :halt_until_pinned, false) do
-        Logger.warning("No pinned message found in non-empty channel; halting publishing until a message is pinned")
-        state
+        # Re-check if a pin appeared
+        refreshed = init_last_ts_from_pinned(state)
+        if Map.get(refreshed, :halt_until_pinned, false) do
+          Logger.warning("No pinned message found; halting publishing until a message is pinned")
+          refreshed
+        else
+          try do
+            do_sync(refreshed)
+          rescue
+            e ->
+              Logger.error("Sync tick crashed: #{inspect(e)}")
+              refreshed
+          end
+        end
       else
         try do
           do_sync(state)
@@ -160,33 +172,13 @@ defmodule Nostr2tg.Scheduler do
         Logger.info("Pinned message baseline: published=#{pub_ts} (message date=#{date})")
         %{state | last_ts: pub_ts}
       _ ->
-        # Determine if channel has messages by checking recent updates for this chat id
-        tg = Application.fetch_env!(:nostr2tg, :tg)
-        chat_id = Map.get(tg, :chat_id)
-        non_empty? =
-          case TelegramClient.get_updates(nil) do
-            {:ok, updates} ->
-              Enum.any?(updates, fn u ->
-                case u do
-                  %{"channel_post" => %{"chat" => %{"id" => id}}} -> to_string(id) == to_string(chat_id)
-                  _ -> false
-                end
-              end)
-            _ -> false
-          end
-
-        if non_empty? do
-          Logger.warning("Channel appears non-empty but has no pinned message; halting until a baseline is pinned")
-          %{state | halt_until_pinned: true}
+        # No pinned message. If configured to backfill an empty channel, start from zero; otherwise halt until a pin exists.
+        if Application.get_env(:nostr2tg, :sync_all_on_empty_channel, false) do
+          Logger.info("No pinned message found; sync_all_on_empty_channel=true → starting from baseline=0")
+          %{state | last_ts: 0, halt_until_pinned: false}
         else
-          if Application.get_env(:nostr2tg, :sync_all_on_empty_channel, false) do
-            Logger.info("Empty channel and no pinned message. sync_all_on_empty_channel=true; syncing all.")
-            state
-          else
-            now = System.system_time(:second)
-            Logger.info("Empty channel and no pinned message. Starting from now=#{now}.")
-            %{state | last_ts: now}
-          end
+          Logger.warning("No pinned message found; halting publishing until a message is pinned")
+          %{state | halt_until_pinned: true}
         end
     end
   end
