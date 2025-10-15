@@ -48,170 +48,107 @@ defmodule Nostr2tg.TelegramClient do
       Logger.info("[DRY-RUN] Would send Telegram message: #{inspect(String.slice(text, 0, 200))}...")
       {:reply, {:ok, %{"ok" => true, "result" => %{"dry_run" => true}}}, state}
     else
-    base = Map.fetch!(tg, :api_base)
-    token = Map.fetch!(tg, :bot_token)
-    chat_id = Map.fetch!(tg, :chat_id)
-
-    url = base <> "/bot" <> token <> "/sendMessage"
-    body = Jason.encode!(%{chat_id: chat_id, text: text, parse_mode: "HTML", disable_web_page_preview: false})
-    headers = [{"content-type", "application/json"}]
-
-    case Req.post(url: url, headers: headers, body: body) do
-      {:ok, %{status: status, body: resp}} when status in 200..299 ->
-        parsed = if is_binary(resp), do: Jason.decode!(resp), else: resp
-        {:reply, {:ok, parsed}, state}
-      {:ok, %{status: status, body: resp}} ->
-        Logger.error("Telegram sendMessage failed: #{status} #{inspect(resp)}")
-        {:reply, {:error, {:status, status, resp}}, state}
-      {:error, reason} ->
-        Logger.error("Telegram sendMessage error: #{inspect(reason)}")
-        {:reply, {:error, reason}, state}
-    end
+      case tg_post("sendMessage", %{chat_id: Map.fetch!(tg, :chat_id), text: text, parse_mode: "HTML", disable_web_page_preview: false}) do
+        {:ok, resp} -> {:reply, {:ok, resp}, state}
+        {:error, reason} -> {:reply, {:error, reason}, state}
+      end
     end
   end
 
   @impl true
   def handle_call({:get_updates, offset}, _from, state) do
     tg = Application.fetch_env!(:nostr2tg, :tg)
-    base = Map.fetch!(tg, :api_base)
-    token = Map.fetch!(tg, :bot_token)
-    url = base <> "/bot" <> token <> "/getUpdates"
     params = %{timeout: div(Map.get(tg, :poll_timeout_ms, 10_000), 1000)}
     params = if offset, do: Map.put(params, :offset, offset), else: params
-    full_url = url <> "?" <> URI.encode_query(params)
 
-    case Req.get(url: full_url) do
-      {:ok, %{status: status, body: resp}} when status in 200..299 ->
-        case resp do
-          %{"ok" => true, "result" => result} -> {:reply, {:ok, result}, state}
-          _ ->
-            with {:ok, %{"ok" => true, "result" => result}} <- (is_binary(resp) && Jason.decode(resp) || {:error, :not_json}) do
-              {:reply, {:ok, result}, state}
-            else
-              _ -> {:reply, {:error, :bad_response}, state}
-            end
-        end
-
-      {:ok, %{status: status, body: resp}} ->
-        {:reply, {:error, {:status, status, resp}}, state}
-
-      {:error, reason} ->
-        {:reply, {:error, reason}, state}
+    case tg_get("getUpdates", params) do
+      {:ok, %{"result" => result}} -> {:reply, {:ok, result}, state}
+      {:ok, other} -> {:reply, {:error, {:bad_response, other}}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
   @impl true
   def handle_call(:get_chat_info, _from, state) do
     tg = Application.fetch_env!(:nostr2tg, :tg)
-    base = Map.fetch!(tg, :api_base)
-    token = Map.fetch!(tg, :bot_token)
-    chat_id = Map.fetch!(tg, :chat_id)
-    url = base <> "/bot" <> token <> "/getChat?" <> URI.encode_query(%{chat_id: chat_id})
-    case Req.get(url: url) do
-      {:ok, %{status: 200, body: body}} ->
-        case body do
-          %{"ok" => true} = resp -> {:reply, {:ok, resp}, state}
-          _ ->
-            case Jason.decode(body) do
-              {:ok, %{"ok" => true} = resp} -> {:reply, {:ok, resp}, state}
-              _ -> {:reply, {:error, :bad_response}, state}
-            end
-        end
-      {:ok, %{status: s, body: b}} -> {:reply, {:error, {:status, s, b}}, state}
+    case tg_get("getChat", %{chat_id: Map.fetch!(tg, :chat_id)}) do
+      {:ok, resp = %{"ok" => true}} -> {:reply, {:ok, resp}, state}
+      {:ok, other} -> {:reply, {:error, {:bad_response, other}}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
   @impl true
   def handle_call({:edit_message_text, chat_id, message_id, text}, _from, state) do
-    tg = Application.fetch_env!(:nostr2tg, :tg)
-    base = Map.fetch!(tg, :api_base)
-    token = Map.fetch!(tg, :bot_token)
-    url = base <> "/bot" <> token <> "/editMessageText"
-    body = Jason.encode!(%{chat_id: chat_id, message_id: message_id, text: text, parse_mode: "HTML"})
-    headers = [{"content-type", "application/json"}]
-    case Req.post(url: url, headers: headers, body: body) do
-      {:ok, %{status: 200, body: body}} ->
-        case body do
-          %{"ok" => true} = resp -> {:reply, {:ok, resp}, state}
-          _ ->
-            case Jason.decode(body) do
-              {:ok, %{"ok" => true} = resp} -> {:reply, {:ok, resp}, state}
-              _ -> {:reply, {:error, :bad_response}, state}
-            end
-        end
-      {:ok, %{status: s, body: b}} -> {:reply, {:error, {:status, s, b}}, state}
+    case tg_post("editMessageText", %{chat_id: chat_id, message_id: message_id, text: text, parse_mode: "HTML"}) do
+      {:ok, resp = %{"ok" => true}} -> {:reply, {:ok, resp}, state}
+      {:ok, other} -> {:reply, {:error, {:bad_response, other}}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
   @impl true
   def handle_call({:pin_chat_message, chat_id, message_id}, _from, state) do
-    tg = Application.fetch_env!(:nostr2tg, :tg)
-    base = Map.fetch!(tg, :api_base)
-    token = Map.fetch!(tg, :bot_token)
-    url = base <> "/bot" <> token <> "/pinChatMessage"
-    body = Jason.encode!(%{chat_id: chat_id, message_id: message_id})
-    headers = [{"content-type", "application/json"}]
-    case Req.post(url: url, headers: headers, body: body) do
-      {:ok, %{status: 200, body: body}} ->
-        case body do
-          %{"ok" => true} = resp -> {:reply, {:ok, resp}, state}
-          _ ->
-            case Jason.decode(body) do
-              {:ok, %{"ok" => true} = resp} -> {:reply, {:ok, resp}, state}
-              _ -> {:reply, {:error, :bad_response}, state}
-            end
-        end
-      {:ok, %{status: s, body: b}} -> {:reply, {:error, {:status, s, b}}, state}
+    case tg_post("pinChatMessage", %{chat_id: chat_id, message_id: message_id}) do
+      {:ok, resp = %{"ok" => true}} -> {:reply, {:ok, resp}, state}
+      {:ok, other} -> {:reply, {:error, {:bad_response, other}}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
   @impl true
   def handle_call({:unpin_chat_message, chat_id, message_id}, _from, state) do
-    tg = Application.fetch_env!(:nostr2tg, :tg)
-    base = Map.fetch!(tg, :api_base)
-    token = Map.fetch!(tg, :bot_token)
-    url = base <> "/bot" <> token <> "/unpinChatMessage"
-    body = Jason.encode!(%{chat_id: chat_id, message_id: message_id})
-    headers = [{"content-type", "application/json"}]
-    case Req.post(url: url, headers: headers, body: body) do
-      {:ok, %{status: 200, body: body}} ->
-        case body do
-          %{"ok" => true} = resp -> {:reply, {:ok, resp}, state}
-          _ ->
-            case Jason.decode(body) do
-              {:ok, %{"ok" => true} = resp} -> {:reply, {:ok, resp}, state}
-              _ -> {:reply, {:error, :bad_response}, state}
-            end
-        end
-      {:ok, %{status: s, body: b}} -> {:reply, {:error, {:status, s, b}}, state}
+    case tg_post("unpinChatMessage", %{chat_id: chat_id, message_id: message_id}) do
+      {:ok, resp = %{"ok" => true}} -> {:reply, {:ok, resp}, state}
+      {:ok, other} -> {:reply, {:error, {:bad_response, other}}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
   @impl true
   def handle_call({:unpin_all_chat_messages, chat_id}, _from, state) do
-    tg = Application.fetch_env!(:nostr2tg, :tg)
-    base = Map.fetch!(tg, :api_base)
-    token = Map.fetch!(tg, :bot_token)
-    url = base <> "/bot" <> token <> "/unpinAllChatMessages"
-    body = Jason.encode!(%{chat_id: chat_id})
-    headers = [{"content-type", "application/json"}]
-
-    case Req.post(url: url, headers: headers, body: body) do
-      {:ok, %{status: 200, body: body}} ->
-        case body do
-          %{"ok" => true} = resp -> {:reply, {:ok, resp}, state}
-          _ ->
-            case Jason.decode(body) do
-              {:ok, %{"ok" => true} = resp} -> {:reply, {:ok, resp}, state}
-              _ -> {:reply, {:error, :bad_response}, state}
-            end
-        end
-      {:ok, %{status: s, body: b}} -> {:reply, {:error, {:status, s, b}}, state}
+    case tg_post("unpinAllChatMessages", %{chat_id: chat_id}) do
+      {:ok, resp = %{"ok" => true}} -> {:reply, {:ok, resp}, state}
+      {:ok, other} -> {:reply, {:error, {:bad_response, other}}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  # --- Private helpers ---
+  defp tg_base_url do
+    tg = Application.fetch_env!(:nostr2tg, :tg)
+    Map.fetch!(tg, :api_base) <> "/bot" <> Map.fetch!(tg, :bot_token)
+  end
+
+  defp tg_post(method, payload) do
+    url = tg_base_url() <> "/" <> method
+    headers = [{"content-type", "application/json"}]
+    body = Jason.encode!(payload)
+    case Req.post(url: url, headers: headers, body: body) do
+      {:ok, %{status: status, body: resp}} when status in 200..299 -> normalize_json_ok(resp)
+      {:ok, %{status: status, body: resp}} -> {:error, {:status, status, resp}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp tg_get(method, params) do
+    url = tg_base_url() <> "/" <> method <> "?" <> URI.encode_query(params)
+    case Req.get(url: url) do
+      {:ok, %{status: status, body: resp}} when status in 200..299 -> normalize_json_ok(resp)
+      {:ok, %{status: status, body: resp}} -> {:error, {:status, status, resp}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp normalize_json_ok(resp) do
+    case resp do
+      %{"ok" => _} = map -> {:ok, map}
+      bin when is_binary(bin) ->
+        case Jason.decode(bin) do
+          {:ok, %{"ok" => _} = map} -> {:ok, map}
+          other -> other
+        end
+      other -> {:error, {:bad_response, other}}
     end
   end
 end
