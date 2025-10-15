@@ -8,7 +8,6 @@ defmodule Nostr2tg.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      {Finch, name: Nostr2tg.Finch, pools: %{default: [size: 5]}},
       Nostr2tg.TelegramClient,
       Nostr2tg.Scheduler
     ]

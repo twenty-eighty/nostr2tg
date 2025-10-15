@@ -4,10 +4,15 @@ defmodule Nostr2tg.Nip05 do
   @spec verify(String.t(), String.t(), String.t()) :: {:ok, true} | {:error, term()}
   def verify(name, domain, pubkey_hex) when is_binary(name) and is_binary(domain) and is_binary(pubkey_hex) do
     url = "https://" <> domain <> "/.well-known/nostr.json?name=" <> URI.encode(name)
-    case Finch.build(:get, url) |> Finch.request(Nostr2tg.Finch) do
-      {:ok, %Finch.Response{status: 200, body: body}} ->
-        case Jason.decode(body) do
-          {:ok, %{"names" => names}} ->
+    case Req.get(url: url) do
+      {:ok, %{status: 200, body: body}} ->
+        data = if is_map(body), do: body, else: (case Jason.decode(body) do
+          {:ok, map} -> map
+          {:error, reason} -> {:invalid, reason}
+        end)
+
+        case data do
+          %{"names" => names} ->
             case Map.get(names, name) do
               pk when is_binary(pk) ->
                 if String.downcase(pk) == String.downcase(pubkey_hex) do
@@ -19,11 +24,11 @@ defmodule Nostr2tg.Nip05 do
               nil -> {:error, :name_not_found}
             end
 
-          {:ok, _other} -> {:error, :invalid_json_structure}
-          {:error, reason} -> {:error, {:invalid_json, reason}}
+          {:invalid, reason} -> {:error, {:invalid_json, reason}}
+          _other -> {:error, :invalid_json_structure}
         end
 
-      {:ok, %Finch.Response{status: status, body: body}} ->
+      {:ok, %{status: status, body: body}} ->
         {:error, {:http_status, status, body}}
 
       {:error, reason} ->

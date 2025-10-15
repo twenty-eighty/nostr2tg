@@ -273,11 +273,7 @@ defmodule Nostr2tg.Scheduler do
   end
 
   defp do_unpin_pin(chat_id, message_id) do
-    case TelegramClient.get_chat_info() do
-      {:ok, %{"result" => %{"pinned_message" => %{"message_id" => old_mid}}}} when is_integer(old_mid) ->
-        _ = TelegramClient.unpin_chat_message(chat_id, old_mid)
-      _ -> :ok
-    end
+    _ = TelegramClient.unpin_all_chat_messages(chat_id)
     case TelegramClient.pin_chat_message(chat_id, message_id) do
       {:ok, %{"ok" => true}} -> Logger.info("Pinned message #{message_id} as baseline")
       {:ok, other} -> Logger.warning("Unexpected pinChatMessage response: #{inspect(other)}")

@@ -33,8 +33,8 @@ defmodule Nostr2tg.MixProject do
   defp deps do
     [
       {:nostr_access, "~> 0.1.3"},
-      {:finch, "~> 0.17"},
       {:castore, "~> 1.0"},
+      {:req, "~> 0.5.15"},
       {:jason, "~> 1.4"},
       {:bech32, "~> 1.0"},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false}
