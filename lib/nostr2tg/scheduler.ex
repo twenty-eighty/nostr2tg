@@ -78,12 +78,6 @@ defmodule Nostr2tg.Scheduler do
       filtered = events
       sorted = Enum.sort_by(filtered, &effective_published_at/1, :asc)
 
-      profiles =
-        case Nostr.fetch_profiles(Enum.uniq(Enum.map(sorted, & &1["pubkey"])), relays) do
-          {:ok, map} -> map
-          _ -> %{}
-        end
-
       # Drop anything at or before baseline to avoid duplicates even if relays resend old events
       eligible = Enum.filter(sorted, fn ev -> effective_published_at(ev) > last_ts end)
 
@@ -95,6 +89,13 @@ defmodule Nostr2tg.Scheduler do
         end
 
       batch = Enum.take(eligible, take_n)
+
+      # Fetch profiles only for authors in the batch
+      batch_profiles =
+        case Nostr.fetch_profiles(Enum.uniq(Enum.map(batch, & &1["pubkey"])), relays) do
+          {:ok, map} -> map
+          _ -> %{}
+        end
 
       throttle_ms = Map.get(Application.fetch_env!(:nostr2tg, :tg), :throttle_ms, 1200)
 
@@ -114,7 +115,7 @@ defmodule Nostr2tg.Scheduler do
             {:cont, {acc_last, last_mid}}
 
           true ->
-            profile = Map.get(profiles, ev["pubkey"], %{})
+            profile = Map.get(batch_profiles, ev["pubkey"], %{})
             text = format_post(ev, profile)
             Logger.info("Publishing article #{key} at published_at=#{pub_at}")
             if not Application.get_env(:nostr2tg, :dry_run, false) do
