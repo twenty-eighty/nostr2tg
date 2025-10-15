@@ -11,7 +11,7 @@ defmodule Nostr2tg.Scheduler do
 
   @impl true
   def init(:ok) do
-    state = %{last_ts: 0}
+    state = %{last_ts: 0, halt_until_pinned: false}
     st = init_last_ts_from_pinned(state)
     schedule_next(0)
     {:ok, st}
@@ -20,7 +20,19 @@ defmodule Nostr2tg.Scheduler do
   @impl true
   def handle_info(:sync, state) do
     Logger.info("Starting sync tick")
-    state = do_sync(state)
+    state =
+      if Map.get(state, :halt_until_pinned, false) do
+        Logger.warning("No pinned message found in non-empty channel; halting publishing until a message is pinned")
+        state
+      else
+        try do
+          do_sync(state)
+        rescue
+          e ->
+            Logger.error("Sync tick crashed: #{inspect(e)}")
+            state
+        end
+      end
     schedule_next(sync_interval())
     Logger.info("Finished sync tick")
     {:noreply, state}
@@ -83,9 +95,11 @@ defmodule Nostr2tg.Scheduler do
         cond do
           not is_integer(pub_at) ->
             Logger.warning("Skipping event without valid published_at: #{inspect(ev["id"])}")
+            {:cont, {acc_last, last_mid}}
 
           pub_at <= last ->
             Logger.info("Article published_at=#{pub_at} <= last=#{last}, skipping")
+            {:cont, {acc_last, last_mid}}
 
           true ->
             profile = Map.get(profiles, ev["pubkey"], %{})
@@ -146,13 +160,33 @@ defmodule Nostr2tg.Scheduler do
         Logger.info("Pinned message baseline: published=#{pub_ts} (message date=#{date})")
         %{state | last_ts: pub_ts}
       _ ->
-        if Application.get_env(:nostr2tg, :sync_all_on_empty_channel, false) do
-          Logger.info("No pinned message. sync_all_on_empty_channel=true; syncing all.")
-          state
+        # Determine if channel has messages by checking recent updates for this chat id
+        tg = Application.fetch_env!(:nostr2tg, :tg)
+        chat_id = Map.get(tg, :chat_id)
+        non_empty? =
+          case TelegramClient.get_updates(nil) do
+            {:ok, updates} ->
+              Enum.any?(updates, fn u ->
+                case u do
+                  %{"channel_post" => %{"chat" => %{"id" => id}}} -> to_string(id) == to_string(chat_id)
+                  _ -> false
+                end
+              end)
+            _ -> false
+          end
+
+        if non_empty? do
+          Logger.warning("Channel appears non-empty but has no pinned message; halting until a baseline is pinned")
+          %{state | halt_until_pinned: true}
         else
-          now = System.system_time(:second)
-          Logger.info("No pinned message. Starting from now=#{now}.")
-          %{state | last_ts: now}
+          if Application.get_env(:nostr2tg, :sync_all_on_empty_channel, false) do
+            Logger.info("Empty channel and no pinned message. sync_all_on_empty_channel=true; syncing all.")
+            state
+          else
+            now = System.system_time(:second)
+            Logger.info("Empty channel and no pinned message. Starting from now=#{now}.")
+            %{state | last_ts: now}
+          end
         end
     end
   end
