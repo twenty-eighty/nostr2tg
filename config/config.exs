@@ -19,7 +19,8 @@ config :nostr2tg,
       bot_token: System.get_env("N2TG_TG_BOT_TOKEN"),
       chat_id: System.get_env("N2TG_TG_CHAT_ID"),
       poll_timeout_ms: 10_000,
-      prefix_text: System.get_env("N2TG_TG_PREFIX", "New Nostr article:")
+      prefix_text: System.get_env("N2TG_TG_PREFIX", "New Nostr article:"),
+      throttle_ms: 1200
     },
   link:
     %{

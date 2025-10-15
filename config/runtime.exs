@@ -37,6 +37,7 @@ if config_env() == :prod do
            bot_token: tg_bot,
            chat_id: tg_chat,
            poll_timeout_ms: String.to_integer(System.get_env("N2TG_TG_POLL_TIMEOUT_MS", "10000")),
-           prefix_text: System.get_env("N2TG_TG_PREFIX", "New Nostr article:")
+           prefix_text: System.get_env("N2TG_TG_PREFIX", "New Nostr article:"),
+           throttle_ms: String.to_integer(System.get_env("N2TG_TG_THROTTLE_MS", "1200"))
          }
 end

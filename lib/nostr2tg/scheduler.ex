@@ -72,6 +72,8 @@ defmodule Nostr2tg.Scheduler do
 
       batch = Enum.take(eligible, take_n)
 
+      throttle_ms = Map.get(Application.fetch_env!(:nostr2tg, :tg), :throttle_ms, 1200)
+
       {new_last_ts, last_message_id} =
       Enum.reduce_while(batch, {last_ts, nil}, fn ev, {acc_last, last_mid} ->
         pub_at = effective_published_at(ev)
@@ -96,6 +98,8 @@ defmodule Nostr2tg.Scheduler do
               {:ok, resp} ->
                 mark_announced_if_not_dry(key, pub_at)
                 message_id = get_in(resp, ["result", "message_id"]) || get_in(resp, [:result, :message_id])
+                # Throttle between messages
+                if throttle_ms > 0, do: Process.sleep(throttle_ms)
                 {:cont, {max(pub_at, acc_last), if(is_integer(message_id), do: message_id, else: last_mid)}}
               {:error, {:status, 429, body}} ->
                 Logger.error("Rate limited by Telegram (429): #{inspect(body)}")
@@ -104,6 +108,12 @@ defmodule Nostr2tg.Scheduler do
                   tg = Application.fetch_env!(:nostr2tg, :tg)
                   chat_id = Map.fetch!(tg, :chat_id)
                   do_unpin_pin(chat_id, last_mid)
+                end
+                # Honor retry_after if present
+                retry = extract_retry_after_seconds(body) || 0
+                if retry > 0 do
+                  Logger.info("Sleeping for #{retry}s due to rate-limit")
+                  Process.sleep(retry * 1000 + 200)
                 end
                 {:halt, {acc_last, last_mid}}
               {:error, reason} ->
@@ -274,6 +284,14 @@ defmodule Nostr2tg.Scheduler do
       {:error, reason} -> Logger.error("Failed to pin message #{message_id}: #{inspect(reason)}")
     end
   end
+
+  defp extract_retry_after_seconds(body) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, %{"parameters" => %{"retry_after" => s}}} when is_integer(s) -> s
+      _ -> nil
+    end
+  end
+  defp extract_retry_after_seconds(_), do: nil
 
   # no-op helpers removed
 end
