@@ -11,7 +11,7 @@ defmodule Nostr2tg.LinkBuilder do
     case {nip05_of(profile), article_identifier(event)} do
       {{:ok, name, domain}, {:ok, identifier}} ->
         case verify_nip05(name, domain, event["pubkey"]) do
-          true ->
+          {:ok, true} ->
             Logger.info("NIP-05 verified for #{name}@#{domain}; using nip05 link")
             link =
               nip05_base
@@ -20,8 +20,8 @@ defmodule Nostr2tg.LinkBuilder do
             Logger.debug("Built link: #{link}")
             link
 
-          false ->
-            Logger.info("NIP-05 NOT verified for #{name}@#{domain}; falling back to naddr")
+          {:error, reason} ->
+            Logger.info("NIP-05 NOT verified for #{name}@#{domain}: #{inspect(reason)}; falling back to naddr")
             naddr = encode_naddr(event)
             link = naddr_base <> naddr
             Logger.debug("Built link: #{link}")
