@@ -6,19 +6,10 @@ defmodule Nostr2tg.Nostr do
   @spec list_article_events_by_authors(non_neg_integer(), [String.t()], [String.t()]) ::
           {:ok, [map()]} | {:error, term()}
   def list_article_events_by_authors(since_ts, authors, relays) when is_list(authors) do
-    max_per_run = Application.get_env(:nostr2tg, :max_per_run)
-
     base_filter = %{kinds: [30023], since: since_ts, authors: authors}
 
-    {filter, opts} =
-      case max_per_run do
-        i when is_integer(i) and i > 0 ->
-          {Map.put(base_filter, :limit, i), [paginate: false]}
-        _ ->
-          {base_filter, [paginate: true, paginate_early_stop_threshold: 50]}
-      end
-
-    Client.fetch(relays, filter, opts)
+    # Always paginate and do not use :limit; ordering and max_per_run are applied later
+    Client.fetch(relays, base_filter, [paginate: true, paginate_early_stop_threshold: 50])
   end
 
   @spec authors_from_mode(map()) :: {:ok, [String.t()]} | {:error, term()}
