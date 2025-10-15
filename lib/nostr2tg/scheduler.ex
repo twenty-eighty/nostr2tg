@@ -169,16 +169,23 @@ defmodule Nostr2tg.Scheduler do
     Logger.info("Initializing baseline from pinned message")
     case TelegramClient.get_chat_info() do
       {:ok, %{"result" => %{"pinned_message" => %{"date" => date, "text" => text}}}} when is_integer(date) and is_binary(text) ->
-        pub_ts = extract_published_from_text(text) || date
-        Logger.info("Pinned message baseline: published=#{pub_ts} (message date=#{date})")
-        %{state | last_ts: pub_ts}
+        # Try to extract explicit Published: timestamp from pinned message text
+        extracted_ts = extract_published_from_text(text)
+        case extracted_ts do
+          int when is_integer(int) ->
+            Logger.debug("Pinned message contains explicit Published: timestamp → using #{int} as baseline")
+            %{state | last_ts: int}
+          _ ->
+            Logger.debug("No explicit Published: timestamp found in pinned message; using pinned message date=#{date} as baseline")
+            %{state | last_ts: date}
+        end
       _ ->
         # No pinned message. If configured to backfill an empty channel, start from zero; otherwise halt until a pin exists.
         if Application.get_env(:nostr2tg, :sync_all_on_empty_channel, false) do
-          Logger.info("No pinned message found; sync_all_on_empty_channel=true → starting from baseline=0")
+          Logger.info("No pinned message found; sync_all_on_empty_channel=true → baseline comes from 0 (backfilling)")
           %{state | last_ts: 0, halt_until_pinned: false}
         else
-          Logger.warning("No pinned message found; halting publishing until a message is pinned")
+          Logger.warning("No pinned message found; baseline unavailable → halting until a message is pinned")
           %{state | halt_until_pinned: true}
         end
     end
