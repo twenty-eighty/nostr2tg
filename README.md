@@ -18,7 +18,7 @@ Environment variables:
 - `N2TG_SYNC_INTERVAL_MS`: sync interval in ms (default: `3600000`)
 - `N2TG_TG_POLL_TIMEOUT_MS`: Telegram long-poll timeout in ms (default: `10000`)
 - `N2TG_DRY_RUN`: set to `1` to simulate sends (no Telegram posts)
-- `N2TG_SYNC_ALL_ON_EMPTY`: when no last Telegram post is found, set `1` to backfill all (default: `0` to start from now)
+- `N2TG_SYNC_ALL_ON_EMPTY`: when no pinned message exists, set `1` to backfill from baseline `0` (epoch). If unset/`0`, publishing halts until a pinned message is set.
 
 ## Local development
 
@@ -65,5 +65,12 @@ This repo includes `render.yaml` and a multi-stage `Dockerfile`.
 ### Notes
 
 - Dry-run logs the full flow and skips Telegram network calls.
-- Baseline timestamp initializes from recent bot updates, then persists in a DETS state file inside the container.
+- Baseline initialization and pinning:
+  - On startup, baseline is derived from the Telegram channel's pinned message.
+    - If the pinned text ends with a line like `Published: YYYY-MM-DD HH:MM:SS` (UTC), that timestamp is used.
+    - Otherwise, the pinned message's own `date` is used as baseline.
+  - If there is no pinned message:
+    - With `N2TG_SYNC_ALL_ON_EMPTY=1`, baseline is `0` (backfill everything).
+    - Otherwise, publishing halts until a message is pinned.
+  - After each batch, the last sent message is pinned to keep the baseline current.
 
