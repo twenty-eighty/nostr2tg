@@ -211,7 +211,29 @@ defmodule Nostr2tg.Scheduler do
 
     published_line = format_published_line(event)
 
-    [String.trim(prefix) <> " " <> bold_title, italic_summary, link, published_line]
+    tg = Application.fetch_env!(:nostr2tg, :tg)
+    author_prefix = Map.get(tg, :author_prefix, "By:") |> String.trim()
+    {author_display, author_url} = LinkBuilder.build_author_ref(profile, event["pubkey"], event)
+    author_html = "<a href=\"" <> html_escape(author_url) <> "\">" <> html_escape(author_display) <> "</a>"
+    byline = String.trim(author_prefix) <> " " <> author_html
+
+    # When a non-empty prefix is configured, make it a link to the article and place it first
+    prefix_trimmed = String.trim(prefix)
+    linked_prefix =
+      case prefix_trimmed do
+        "" -> ""
+        p -> "<a href=\"" <> html_escape(link) <> "\">" <> html_escape(p) <> "</a>"
+      end
+
+    parts =
+      if linked_prefix != "" do
+        [linked_prefix <> " " <> bold_title, byline, italic_summary, link, published_line]
+      else
+        # Keep the explicit article link if there's no prefix to click
+        [bold_title, byline, italic_summary, link, published_line]
+      end
+
+    parts
     |> Enum.reject(&(&1 == ""))
     |> Enum.join("\n\n")
   end

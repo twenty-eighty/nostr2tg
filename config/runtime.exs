@@ -11,14 +11,18 @@ level =
         "error" -> :error
         _ -> :info
       end
-    _ -> :info
+
+    _ ->
+      :info
   end
 
 config :logger, level: level
 
 sync_interval_ms =
   case System.get_env("N2TG_SYNC_INTERVAL_MS") do
-    nil -> 3_600_000
+    nil ->
+      3_600_000
+
     v ->
       case Integer.parse(v) do
         {i, ""} when i > 0 -> i
@@ -31,8 +35,12 @@ sync_all_on_empty? = System.get_env("N2TG_SYNC_ALL_ON_EMPTY") in ["1", "true", "
 
 max_per_run =
   case System.get_env("N2TG_MAX_PER_RUN") do
-    nil -> nil
-    "" -> nil
+    nil ->
+      nil
+
+    "" ->
+      nil
+
     v ->
       case Integer.parse(v) do
         {i, ""} when i > 0 -> i
@@ -49,12 +57,14 @@ tg_config = %{
   chat_id: tg_chat,
   poll_timeout_ms: String.to_integer(System.get_env("N2TG_TG_POLL_TIMEOUT_MS", "10000")),
   prefix_text: System.get_env("N2TG_TG_PREFIX", "New Nostr article:"),
-  throttle_ms: String.to_integer(System.get_env("N2TG_TG_THROTTLE_MS", "1200"))
+  throttle_ms: String.to_integer(System.get_env("N2TG_TG_THROTTLE_MS", "1200")),
+  author_prefix: System.get_env("N2TG_TG_AUTHOR_PREFIX", "By:")
 }
 
 link_config = %{
   naddr_base: System.get_env("N2TG_LINK_NADDR_BASE", "https://njump.me/"),
-  nip05_base: System.get_env("N2TG_LINK_NIP05_BASE", "https://example.com/nostr")
+  nip05_base: System.get_env("N2TG_LINK_NIP05_BASE", "https://example.com/nostr"),
+  nprofile_base: System.get_env("N2TG_LINK_NPROFILE_BASE", "https://njump.me/")
 }
 
 nostr_relays =

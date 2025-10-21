@@ -6,13 +6,12 @@ defmodule Nostr2tg.Application do
   use Application
   require Logger
 
+  @is_test Mix.env() == :test
+
   @impl true
   def start(_type, _args) do
     log_effective_config()
-    children = [
-      Nostr2tg.TelegramClient,
-      Nostr2tg.Scheduler
-    ]
+    children = if @is_test, do: [], else: [Nostr2tg.TelegramClient, Nostr2tg.Scheduler]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
@@ -37,6 +36,9 @@ defmodule Nostr2tg.Application do
     Logger.info("Config: tg=#{inspect(redacted_tg)}")
     Logger.info("Config: nostr=#{inspect(nostr)}")
     Logger.info("Config: link=#{inspect(link)}")
-    Logger.info("Config: sync_interval_ms=#{inspect(sync_ms)} dry_run=#{dry} sync_all_on_empty_channel=#{sync_all} max_per_run=#{inspect(max_per)}")
+
+    Logger.info(
+      "Config: sync_interval_ms=#{inspect(sync_ms)} dry_run=#{dry} sync_all_on_empty_channel=#{sync_all} max_per_run=#{inspect(max_per)}"
+    )
   end
 end

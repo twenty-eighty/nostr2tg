@@ -9,7 +9,7 @@ defmodule Nostr2tg.Nostr do
     base_filter = %{kinds: [30023], since: since_ts, authors: authors}
 
     # Always paginate and do not use :limit; ordering and max_per_run are applied later
-    Client.fetch(relays, base_filter, [paginate: true, paginate_early_stop_threshold: 50])
+    Client.fetch(relays, base_filter, paginate: true, paginate_early_stop_threshold: 50)
   end
 
   @spec authors_from_mode(map()) :: {:ok, [String.t()]} | {:error, term()}
@@ -47,7 +47,8 @@ defmodule Nostr2tg.Nostr do
             {:ok, []}
         end
 
-      other -> other
+      other ->
+        other
     end
   end
 
